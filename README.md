@@ -1,0 +1,1 @@
+# ChindaluruGanesh-Deep-Learning-Based-Intelligent-System-for-Managing-Waste-Made-of-Plastic
