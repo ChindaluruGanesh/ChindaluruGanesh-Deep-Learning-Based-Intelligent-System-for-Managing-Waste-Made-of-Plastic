@@ -1,0 +1,657 @@
+drive.mount('/content/drive')  # Mounting Google Drive to access files
+"""# Importing the libraries and initializing the path variables"""
+import numpy as np  # For numerical computations
+import pandas as pd  # For data manipulation and analysis
+import matplotlib.pyplot as plt  # For data visualization
+import seaborn as sns  # For enhanced data visualization
+sns.set()  # Setting Seaborn as the default plotting style
+import os  # For interacting with the operating system
+import shutil  # For file and directory operations
+from glob import glob  # For pattern matching of file paths
+from PIL import Image  # For image processing
+
+# Defining the path variables for data, folder, and saving models and visualizations
+data_path = '/content/drive/MyDrive/Project/v002/dataset-resized/'
+folder_path = '/content/drive/MyDrive/Project/v002/'
+save_model_path = '/content/drive/MyDrive/Project/v002/saved_models/'
+visualisation_path = '/content/drive/MyDrive/Project/v002/visualisations/'
+
+# Creating directories for saving models and visualizations if they don't already exist
+if not os.path.exists(save_model_path):  
+    os.makedirs(save_model_path)
+if not os.path.exists(visualisation_path):  
+    os.makedirs(visualisation_path)
+
+# Constants for image dimensions, size, batch size, and epochs
+IMAGE_DIMS = (224, 224)
+IMAGE_SIZE = (224, 224, 3)
+BATCH_SIZE = 32
+MODEL_EPOCHS = 40
+
+"""# Unzipping Dataset
+- Dataset Github: https://github.com/garythung/trashnet
+"""
+# Unzipping the dataset if it hasn't already been unzipped
+if not os.path.exists(data_path):  
+    shutil.unpack_archive(folder_path + "dataset-resized.zip", folder_path)
+
+# Listing the directories inside the dataset path
+glob(data_path + '*/')
+
+# Function to count the number of files in a directory and its subdirectories
+# Inspired from https://theprogrammingexpert.com/count-number-of-files-in-directory-python/
+def count_number_of_files(path):
+    print("Main Directory:", path)  # Printing the main directory path
+    print("Files in Main Directory:", len(os.listdir(path)))  # Printing the number of files in the main directory
+    print("\nSub-Directories:")  # Printing the sub-directory details
+    for root, dirs, files in os.walk(path):  # Iterating through subdirectories
+        for name in dirs:
+            print(os.path.join(root, name), ":", len(os.listdir(os.path.join(root, name))))  # Printing sub-directory path and file count
+
+# Calling the function to count the number of files in the dataset directory
+count_number_of_files(data_path)
+
+# Dictionary representing the dataset classes and the number of images in each class
+dataset_classes = {
+    'paper': 594,
+    'metal': 410,
+    'cardboard': 403,
+    'trash': 137,
+    'glass': 501,
+    'non recycable plastic': 149,
+    'recycable plastic': 328
+}
+
+# Creating a DataFrame from the dataset classes dictionary
+df_dataset_classes = pd.DataFrame(dataset_classes.items(), columns=['Category', 'No_of_Images'])
+
+# Sorting the DataFrame by the number of images in descending order
+df_dataset_classes = df_dataset_classes.sort_values(by='No_of_Images', ascending=False)
+
+# Resetting the index of the DataFrame
+df_dataset_classes.reset_index(drop=True, inplace=True)
+
+# Displaying the first few rows of the DataFrame
+df_dataset_classes.head()
+
+# Plotting a bar chart of the number of images in each category
+df_dataset_classes.plot.bar(
+    x='Category',  # Setting the x-axis label
+    y='No_of_Images',  # Setting the y-axis label
+    xlabel='Category',  # Label for the x-axis
+    ylabel='No_of_Images',  # Label for the y-axis
+    legend=False,  # Disabling the legend
+    figsize=(7, 7)  # Setting the figure size
+)
+
+# Adding a title to the plot
+plt.title('No of Images in each Category')
+
+# Saving the plot as a PNG file in the visualizations path
+plt.savefig(os.path.join(visualisation_path, 'class_distribution.png'), dpi=300, bbox_inches='tight')
+
+# Calculating the total number of images in the dataset
+total_images = df_dataset_classes['No_of_Images'].sum()
+
+# Displaying the total number of images
+total_images
+
+# Adding a column to the DataFrame for the percentage of images in each category
+df_dataset_classes['Percentage'] = df_dataset_classes['No_of_Images'] / total_images * 100
+
+# Displaying the updated DataFrame
+df_dataset_classes
+
+"""# Converting images to Numpy.NDArray"""
+
+# Function to extract a NumPy array from an image file
+def extract_image_array(filename, required_size=IMAGE_DIMS):
+    # Load the image from the file
+    image = Image.open(filename)
+    # Convert the image to RGB format, if necessary
+    image = image.convert('RGB')
+    # Resize the image to the required dimensions
+    image = image.resize(required_size)
+    # Convert the image to a NumPy array
+    image_array = np.asarray(image)
+    return image_array
+
+# Function to load images from a directory into a list
+def load_images(directory):
+    images = []  # Initializing an empty list to store image arrays
+    for filename in os.listdir(directory):  # Iterating through the files in the directory
+        # Constructing the full path to the file
+        path = directory + filename
+        # Extracting the image array
+        image = extract_image_array(path)
+        # Appending the image array to the list
+        images.append(image)
+    return images
+
+# Function to load dataset from a given directory
+def load_dataset(directory):
+    X, y = [], []  # Initializing empty lists to store images and labels
+    # Enumerate through folders (one per class)
+    for subdir in os.listdir(directory):
+        # Construct the path for the subdirectory
+        path = directory + subdir + '/'
+        # Skip any files that might be in the directory
+        if not os.path.isdir(path):
+            continue
+        # Load all images from the subdirectory
+        images = load_images(path)
+        # Create labels, each image gets the subdirectory name as its label
+        labels = [subdir for _ in range(len(images))]
+        # Summarize progress by printing the number of images loaded
+        print('>loaded %d examples for class: %s' % (len(images), subdir))
+        # Store images and labels in the lists
+        X.extend(images)
+        y.extend(labels)
+        # Delete images and labels to free memory
+        del images
+        del labels
+    # Return numpy arrays of images and labels
+    return np.asarray(X), np.asarray(y)
+
+# Load dataset from the specified path
+data, labels = load_dataset(data_path)
+
+# Print the shape of the dataset and labels
+print(data.shape, labels.shape)
+
+# Save the dataset and labels in a compressed .npz file
+np.savez_compressed(folder_path + 'v002_dataset.npz', data, labels)
+
+"""# Pre-processing for models"""
+# Load the dataset from the saved .npz file
+dataset = np.load(folder_path + 'v002_dataset.npz')
+data, char_labels = dataset['arr_0'], dataset['arr_1']
+
+# Print the shapes of the loaded data and labels
+print(data.shape)
+print(char_labels.shape)
+
+"""# Data transformation for models"""
+from sklearn.model_selection import train_test_split
+
+# Splitting the numpy array of all images into train, test, and validation sets
+train_ratio = 0.75  # 75% of the data will be used for training
+validation_ratio = 0.15  # 15% will be used for validation
+test_ratio = 0.10  # 10% will be used for testing
+
+# Split the data into training and testing sets, using the train_ratio
+# The '_junk' suffix indicates that this variable is not needed after splitting
+X_train, X_test, y_train, y_test = train_test_split(data,
+    char_labels,
+    test_size=1 - train_ratio)  # Use the remaining data for testing
+
+# Test set is now 10% of the initial dataset
+# Validation set is now 15% of the initial dataset
+X_val, X_test, y_val, y_test = train_test_split(X_test,
+    y_test,
+    test_size=test_ratio/(test_ratio + validation_ratio))
+
+# Print the shape and percentage of images in training, validation, and testing sets
+print("Training set:",
+      "\nX_train: ", X_train.shape, ";", len(X_train)*100/len(data),
+      "\ny_train: ", y_train.shape, ";", len(y_train)*100/len(char_labels))
+print("\nValidation set:",
+      "\nX_val: ", X_val.shape, ";", len(X_val)*100/len(data),
+      "\ny_val: ", y_val.shape, ";", len(y_val)*100/len(char_labels))
+print("\nTesting set:",
+      "\nX_test: ", X_test.shape, ";", len(X_test)*100/len(data),
+      "\ny_test: ", y_test.shape, ";", len(y_test)*100/len(char_labels))
+
+# Check the shape of the test data
+X_test
+y_test
+
+# Importing necessary preprocessing modules for the target labels
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+
+# Function to prepare target labels for the model (encoding)
+def prepare_targets(input_char_labels):
+    labelencoder = LabelEncoder()  # Initialize label encoder
+    onehotencoder = OneHotEncoder()  # Initialize one-hot encoder
+    output_enc_labels = labelencoder.fit_transform(input_char_labels)  # Encode labels
+    output_enc_labels = onehotencoder.fit_transform(output_enc_labels.reshape(-1, 1)).toarray()  # One-hot encode
+    return output_enc_labels, labelencoder, onehotencoder
+
+# Prepare encoded labels for the train, validation, and test sets
+y_train_enc, le_train, ohe_train = prepare_targets(y_train)
+y_val_enc, le_val, ohe_val = prepare_targets(y_val)
+y_test_enc, le_test, ohe_test = prepare_targets(y_test)
+
+# Check the shapes of the encoded labels
+y_test_enc.shape
+y_test.shape
+
+# Print test labels and encoded labels
+print(y_test)
+y_test_enc
+y_test_enc[0]
+y_test_enc[1]
+
+"""# MODELS"""
+# Import the necessary packages for building the model
+from tensorflow.keras import layers
+from tensorflow.keras.layers import Input, Dense, Flatten
+from tensorflow.keras import optimizers, Model, layers
+from tensorflow.keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img
+from tensorflow.keras.optimizers import Adam
+
+# Construct the training image generator for data augmentation
+aug = ImageDataGenerator(rotation_range = 20,
+                         zoom_range = 0.15,
+                         width_shift_range = 0.2,
+                         height_shift_range = 0.2,
+                         shear_range = 0.15,
+                         horizontal_flip = True,
+                         fill_mode = "nearest")
+
+# Define the target class names for the model
+target_names = ['cardboard', 'glass', 'metal', 'paper', 'non recycable plastic', 'recycable plastic', 'trash']
+
+"""A"""
+# Import the InceptionV3 model for transfer learning
+from tensorflow.keras.applications.inception_v3 import InceptionV3
+
+# Load the InceptionV3 network without the top layer (classification head)
+ibase_model = InceptionV3(weights = "imagenet",
+                          include_top = False,
+                          input_tensor = Input(IMAGE_SIZE))
+
+# Display the model summary of the base InceptionV3 model
+ibase_model.summary()
+
+# Construct the head of the model that will be placed on top of the base model
+ilast_layer = ibase_model.layers[-1]  # Get the last layer of the base model
+print('last layer output shape: ', ilast_layer.output_shape)
+ihead_model = ilast_layer.output
+ihead_model = layers.Flatten()(ihead_model)  # Flatten the output from the base model
+ihead_model = layers.Dense(7, activation = "softmax")(ihead_model)  # Dense layer with 7 classes (softmax for classification)
+
+# Combine the base model and head to create the final model
+from tensorflow.keras.models import Model
+ifinal_model = Model(inputs = ibase_model.input, outputs = ihead_model)
+
+# Freeze all layers in the base model so they are not updated during training
+for layer in ibase_model.layers:
+    layer.trainable = False
+
+# Compile the model
+print("[INFO] compiling model...")
+ifinal_model.compile(loss = "categorical_crossentropy",
+                     optimizer='adam',
+                     metrics = ["accuracy"])
+
+# Display a message indicating that model compilation is complete
+print("\n\n[INFO] model compilation complete!")
+
+"""### Inception Model Checkpoint"""
+# Create a callback to save the best model based on validation loss
+from tensorflow.keras.callbacks import ModelCheckpoint
+imodel_checkpoint_callback = ModelCheckpoint(filepath=os.path.join(save_model_path,
+    "modelv002_IN01_{epoch:02d}.h5"),
+    save_best_only=True,  # Save only the best model
+    save_weights_only=False,  # Save the full model (not just weights)
+    monitor='val_loss',  # Monitor validation loss
+    mode='min')  # Save when validation loss is minimized
+
+"""### Inception Model Learning Rate Reduction"""
+# Create a callback to reduce the learning rate if validation accuracy does not improve
+from tensorflow.keras.callbacks import ReduceLROnPlateau
+ilearning_rate_reduction_callback = ReduceLROnPlateau(monitor = 'val_accuracy',  # Monitor validation accuracy
+    patience = 10,  # Wait for 10 epochs before reducing learning rate
+    verbose = 1,  # Display learning rate change
+    factor = 0.5,  # Reduce learning rate by 50%
+    min_lr = 1e-6)  # Set minimum learning rate
+
+"""### Inception Model Early Stopping"""
+# Create a callback to stop training early if validation loss does not improve
+from tensorflow.keras.callbacks import EarlyStopping
+iearly_stopping_callback = EarlyStopping(monitor='val_loss',  # Monitor validation loss
+    mode='min',  # Stop when validation loss is minimized
+    verbose=1,  # Display when early stopping occurs
+    patience=25)  # Wait for 25 epochs before stopping
+
+"""### Model training"""
+# Train the model using the training and validation data
+# Train the head of the network
+print("[INFO] model training - epochs and summary...\n\n")
+ifinal_model_history = ifinal_model.fit(X_train, y_train_enc,  # Train on the training data
+    steps_per_epoch = len(X_train) // BATCH_SIZE,  # Number of steps per epoch
+    validation_data = (X_val, y_val_enc),  # Use validation data
+    validation_steps = len(X_val) // BATCH_SIZE,  # Number of validation steps
+    epochs = MODEL_EPOCHS,  # Total number of epochs
+    callbacks = [imodel_checkpoint_callback,  # Include the defined callbacks
+    iearly_stopping_callback,
+    ilearning_rate_reduction_callback])
+print("\n\n[INFO] model training complete!\n\n")
+
+# Plot the training accuracy and loss vs. epochs
+# Plots of Accuracy and Loss vs Epochs.
+fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(8, 5), dpi=100)  # Create subplots for accuracy and loss
+fig.suptitle("Inception Model - Experiment 2", fontdict = {'size': 10, 'weight' : 3})  # Title for the plot
+ax[0].set_title('Accuracy vs Epochs')  # Title for the accuracy plot
+ax[0].plot(ifinal_model_history.history['accuracy'], label='Training Acc')  # Plot training accuracy
+ax[0].plot(ifinal_model_history.history['val_accuracy'], label='Val acc')  # Plot validation accuracy
+ax[0].set_xlabel('Epochs', fontsize=10)  # Label for x-axis
+ax[0].set_ylabel('Accuracy', fontsize=10)  # Label for y-axis
+ax[0].legend(fontsize=10)  # Add legend
+ax[0].tick_params(axis='both', which='major', labelsize=8)  # Adjust tick parameters
+ax[0].xaxis.set_ticks(np.arange(0, 19, 2))  # Set ticks for x-axis
+ax[0].yaxis.set_ticks(np.arange(0.0, 1.05, 0.1))  # Set ticks for y-axis
+
+ax[1].plot(np.log10(ifinal_model_history.history['loss']), label='Training Loss')  # Plot training loss (log scale)
+ax[1].plot(np.log10(ifinal_model_history.history['val_loss']), label='Val Loss')  # Plot validation loss (log scale)
+ax[1].set_xlabel('Epochs', fontsize=10)  # Label for x-axis
+ax[1].set_ylabel('LOG10(Loss)', fontsize=10)  # Label for y-axis (log scale)
+ax[1].legend(fontsize=10)  # Add legend
+ax[1].tick_params(axis='both', which='major', labelsize=8)  # Adjust tick parameters
+ax[1].xaxis.set_ticks(np.arange(0, 19, 2))  # Set ticks for x-axis
+ax[1].yaxis.set_ticks(np.arange(-1.5, 2.55, 0.5))  # Set ticks for y-axis (log scale)
+
+# Save the plot as an image file
+fig.savefig(os.path.join(visualisation_path,
+    'v002_inception_IN01.png'),
+    dpi=300,  # Set the resolution
+    bbox_inches='tight')  # Adjust bounding box
+
+# Display the plot
+plt.show()
+
+ifinal_model_history_df = pd.DataFrame(ifinal_model_history.history)  # Convert the training history to a DataFrame
+ifinal_model_history_df  # Display the DataFrame
+# Save the training history DataFrame to a CSV file
+ifinal_model_history_df.to_csv(os.path.join(save_model_path,
+    'ifinal_model_history_IN01.csv'),
+    index=False)
+
+"""### Evaluating the model"""
+# Make predictions on the testing set
+print("[INFO] evaluating network...")
+ipredictions = ifinal_model.predict(X_test, batch_size = BATCH_SIZE)  # Predict the categories for the test set
+print("\n\n[INFO] evaluation complete!")
+
+# For each image in the testing set, find the index of the label with the largest predicted probability
+ipredictions = np.argmax(ipredictions, axis=1)
+
+from sklearn.metrics import classification_report, confusion_matrix
+# Generate a classification report
+print(classification_report(y_test_enc.argmax(axis=1),
+    ipredictions,
+    target_names=target_names))
+report_i = classification_report(y_test_enc.argmax(axis=1),
+    ipredictions,
+    target_names=target_names,
+    output_dict=True)  # Convert the report to a dictionary
+
+df_report_i = pd.DataFrame(report_i).transpose()  # Convert the classification report dictionary to a DataFrame
+df_report_i  # Display the report DataFrame
+
+# Save the classification report to a CSV file
+df_report_i.to_csv(os.path.join(save_model_path,
+    'v002_inception_IN01.csv'),
+    index=False)
+
+# Generate a confusion matrix
+cm_i = pd.crosstab(y_test_enc.argmax(axis=1),
+    ipredictions,
+    rownames=['Actual'],
+    colnames=['Predicted'])
+
+# Reindex the columns to ensure all categories are present in the confusion matrix
+cm_i = cm_i.reindex([0,1,2,3,4,5], axis='columns', fill_value=0)
+
+# Plot the confusion matrix as a heatmap
+fig, ax = plt.subplots(1, figsize=(10,10))
+sns.heatmap(cm_i, fmt="d",  # Format as integers
+    xticklabels=target_names,  # X-axis labels
+    yticklabels=target_names,  # Y-axis labels
+    annot=True, ax=ax,  # Display the values in the cells
+    linewidths=0.2, linecolor="white", cmap="icefire")  # Set color map and line properties
+
+# Set the limits for the axes to display the heatmap correctly
+ax.set_ylim(6, 0)
+ax.set_xlim(0, 6)
+
+# Pre-processing the image for prediction
+im2 = im2.convert('RGB')  # Convert to RGB format
+im2 = im2.resize(IMAGE_DIMS)  # Resize the image to the required dimensions
+im2 = np.expand_dims(im2, axis=0)  # Add an extra dimension for batch size
+im2 = np.asarray(im2)  # Convert to numpy array
+
+# Predict the category using the model
+pred2 = ifinal_model.predict([im2])[0]
+pred2 = np.argmax(pred2)  # Get the index of the highest probability
+
+# Print the predicted category
+print("Predicted Category:", target_names[pred2])
+
+# Save the confusion matrix plot
+plt.title(f'Confusion Matrix - Inception Model - Experiment 2', fontsize=14)  # Set the plot title
+plt.savefig(os.path.join(visualisation_path,
+    'v002_confusion_matrix_IN01.png'),
+    dpi=300, bbox_inches='tight')  # Save the plot as an image
+plt.show()  # Display the plot
+
+# Define the path for sample images
+sample = '/content/drive/MyDrive/Project/v002/sample/'
+
+# Create the directory if it does not exist
+if not os.path.exists(sample):
+    os.makedirs(sample)
+
+"""### Predicting on test images"""
+# Test the model performance on custom data
+im1 = Image.open(sample+"g.jpg")  # Load the test image
+plt.imshow(im1)  # Display the image
+print("Actual Category: glass")  # Print the actual category
+
+# Pre-processing the image
+im1 = im1.convert('RGB')  # Convert to RGB format
+im1 = im1.resize(IMAGE_DIMS)  # Resize the image
+im1 = np.expand_dims(im1, axis=0)  # Add an extra dimension for batch size
+im1 = np.asarray(im1)  # Convert to numpy array
+
+# Predict the category using the model
+pred1 = ifinal_model.predict([im1])[0]
+pred1 = np.argmax(pred1)  # Get the index of the highest probability
+
+# Print the predicted category
+print("Predicted Category:", target_names[pred1])
+
+# Test the model performance on another custom data
+im2 = Image.open(sample+"cans.jpg")  # Load another test image
+plt.imshow(im2)  # Display the image
+print("Actual Category: non recycable plastic")  # Print the actual category
+
+# Pre-processing the image
+im2 = im2.convert('RGB')  # Convert the image to RGB format if it's not already in that mode
+im2 = im2.resize(IMAGE_DIMS)  # Resize the image to the required dimensions for the model
+im2 = np.expand_dims(im2, axis=0)  # Add an extra dimension to simulate batch size (e.g., [1, height, width, channels])
+im2 = np.asarray(im2)  # Convert the image to a numpy array
+
+# Predicting using the model
+pred2 = ifinal_model.predict([im2])[0]  # Make a prediction using the trained model, get the first prediction
+pred2 = np.argmax(pred2)  # Get the index of the highest predicted probability
+
+# Print the predicted category
+print("Predicted Category:", target_names[pred2])  # Print the category name corresponding to the prediction
+
+
+"""## Resnet model"""
+from tensorflow.keras.applications.resnet50 import ResNet50
+# Load the ResNet50 model with pre-trained ImageNet weights
+rbase_model = ResNet50(weights = "imagenet",  # Load ResNet with ImageNet weights
+include_top = False,  # Exclude the top fully connected layers
+input_tensor = Input(IMAGE_SIZE))  # Input tensor with specified image dimensions
+rbase_model.summary()  # Print the summary of the base ResNet model
+
+# Construct the head of the model that will be placed on top of the base model
+rlast_layer = rbase_model.layers[-1]  # Get the last layer of the base model
+print('last layer output shape: ', rlast_layer.output_shape)  # Print the output shape of the last layer
+rhead_model = rlast_layer.output
+rhead_model = layers.Flatten()(rhead_model)  # Flatten the output to feed into dense layers
+rhead_model = layers.Dense(7, activation = "softmax")(rhead_model)  # Dense layer with 7 classes and softmax activation
+
+# Place the head model on top of the base model
+rfinal_model = Model(inputs = rbase_model.input, outputs = rhead_model)
+
+# Freeze all layers in the base ResNet model to prevent them from being updated during initial training
+for layer in rbase_model.layers:
+    layer.trainable = False
+
+# Compile the model
+print("[INFO] compiling Resnet model...")
+rfinal_model.compile(loss = "categorical_crossentropy",  # Categorical crossentropy loss for multi-class classification
+optimizer='adam',  # Adam optimizer for training
+metrics = ["accuracy"])  # Track accuracy during training
+print("\n\n[INFO] Resnet model compilation complete!")
+
+"""### Resnet Model Checkpoint"""
+from tensorflow.keras.callbacks import ModelCheckpoint
+rmodel_checkpoint_callback = ModelCheckpoint(filepath=os.path.join(save_model_path,
+"modelv002_RN01_{epoch:02d}.h5"),  # Save the model after every epoch
+save_best_only=True,  # Save only the best model based on validation loss
+save_weights_only=False,  # Save the entire model, not just weights
+monitor='val_loss',  # Monitor validation loss to determine the best model
+mode='min')  # Minimize validation loss
+
+"""### Resnet Model Learning Rate Reduction"""
+from tensorflow.keras.callbacks import ReduceLROnPlateau
+rlearning_rate_reduction_callback = ReduceLROnPlateau(monitor = 'val_accuracy',  # Reduce learning rate when validation accuracy plateaus
+patience = 10,  # Wait for 10 epochs without improvement
+verbose = 1,  # Print when the learning rate is reduced
+factor = 0.5,  # Reduce the learning rate by a factor of 0.5
+min_lr = 1e-6)  # Minimum learning rate to prevent it from becoming too small
+
+"""### Resnet Model Early Stopping"""
+from tensorflow.keras.callbacks import EarlyStopping
+rearly_stopping_callback = EarlyStopping(monitor='val_loss',  # Stop training if validation loss does not improve
+mode='min',  # Minimize validation loss
+verbose=1,  # Print when training stops
+patience=25)  # Wait for 25 epochs without improvement before stopping
+
+"""### Model training"""
+# Train the model on the data
+print("[INFO] model training - epochs and summary...\n\n")
+rfinal_model_history = rfinal_model.fit(aug.flow(X_train, y_train_enc,  # Augmented data for training
+batch_size = BATCH_SIZE),
+steps_per_epoch = len(X_train) // BATCH_SIZE,  # Number of steps per epoch
+validation_data = (X_val, y_val_enc),  # Validation data for evaluation
+validation_steps = len(X_val) // BATCH_SIZE,  # Number of validation steps
+epochs = MODEL_EPOCHS,  # Number of epochs
+callbacks = [rmodel_checkpoint_callback,  # Callbacks for model checkpoint, early stopping, and learning rate reduction
+rearly_stopping_callback,
+rlearning_rate_reduction_callback])
+print("\n\n[INFO] model training complete!\n\n")
+
+# Save the model training history to a CSV file
+rfinal_model_history_df = pd.DataFrame(rfinal_model_history.history)
+rfinal_model_history_df
+rfinal_model_history_df.to_csv(os.path.join(save_model_path,
+'rfinal_model_history_RN01.csv'),  # Save training history to a CSV
+index=False)
+
+# Plots of Accuracy and Loss vs Epochs.
+fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(8, 5), dpi=100)
+fig.suptitle("Resnet Model - Experiment 3", fontdict = {'size': 10, 'weight' : 3})
+ax[0].set_title('Accuracy vs Epochs')  # Plot training and validation accuracy
+ax[0].plot(rfinal_model_history.history['accuracy'], label='Training Acc')  # Plot training accuracy
+ax[0].plot(rfinal_model_history.history['val_accuracy'], label='Val acc')  # Plot validation accuracy
+ax[0].set_xlabel('Epochs', fontsize=10)
+ax[0].set_ylabel('Accuracy', fontsize=10)
+ax[0].legend(fontsize=10)
+ax[0].tick_params(axis='both', which='major', labelsize=8)
+ax[0].xaxis.set_ticks(np.arange(0, 26, 2))
+ax[0].yaxis.set_ticks(np.arange(0.6, 1.05, 0.1))
+ax[1].set_title('Loss vs Epochs')  # Plot training and validation loss
+ax[1].plot(rfinal_model_history.history['loss'], label='Training Loss')  # Plot training loss
+ax[1].plot(rfinal_model_history.history['val_loss'], label='Val Loss')  # Plot validation loss
+ax[1].set_xlabel('Epochs', fontsize=10)
+ax[1].set_ylabel('Loss', fontsize=10)
+ax[1].legend(fontsize=10)
+ax[1].tick_params(axis='both', which='major', labelsize=8)
+ax[1].xaxis.set_ticks(np.arange(0, 26, 2))
+ax[1].yaxis.set_ticks(np.arange(0.0, 9.0, 1.0))
+
+# Save the accuracy and loss plot
+fig.savefig(os.path.join(visualisation_path,
+'v002_resnet_RN01.png'),  # Save the plot to a PNG file
+dpi=300,
+bbox_inches='tight')
+plt.show()  # Display the plot
+
+"""### Evaluating the model"""
+# Make predictions on the testing set
+print("[INFO] evaluating network...")
+predictions = rfinal_model.predict(X_test, batch_size = BATCH_SIZE)  # Make predictions on test data
+print("\n\n[INFO] evaluation complete!")
+
+# For each image in the testing set, get the index of the class with the highest predicted probability
+predictions = np.argmax(predictions, axis=1)  # Get the predicted class with the highest probability
+
+from sklearn.metrics import classification_report, confusion_matrix
+# Display the classification report (detailed metrics of performance)
+print(classification_report(y_test_enc.argmax(axis=1), predictions, target_names=target_names))
+
+# Display the classification report without class names
+print(classification_report(y_test_enc.argmax(axis=1), predictions))
+
+# Generate a detailed classification report as a dictionary
+report = classification_report(y_test_enc.argmax(axis=1), predictions, target_names=target_names, output_dict=True)
+df_report = pd.DataFrame(report).transpose()  # Convert the report dictionary to a DataFrame
+df_report  # Display the classification report DataFrame
+
+# Save the classification report as a CSV file for future reference
+df_report.to_csv(os.path.join(save_model_path, 'v002_resnet_RN01.csv'), index=False)
+
+# Generate the confusion matrix
+cm = pd.crosstab(y_test_enc.argmax(axis=1), predictions, rownames=['Actual'], colnames=['Predicted'])
+
+# Create a figure for the confusion matrix heatmap
+fig, ax = plt.subplots(1, figsize=(10,10))  
+
+# Plot the confusion matrix as a heatmap with annotated values
+sns.heatmap(cm, fmt="d", xticklabels=target_names, yticklabels=target_names, annot=True, ax=ax,
+            linewidths=0.2, linecolor="white", cmap="icefire")  # Customize heatmap appearance
+ax.set_ylim(6, 0)  # Reverse y-axis so the matrix appears in standard orientation
+ax.set_xlim(0, 6)  # Limit x-axis based on the number of classes
+plt.title(f'Confusion Matrix - Resnet Model - Experiment 3', fontsize=14)  # Set the plot title
+plt.savefig(os.path.join(visualisation_path, 'v002_confusion_matrix_RN01.png'), dpi=300, bbox_inches='tight')  # Save the heatmap as an image
+plt.show()  # Display the confusion matrix plot
+
+"""### Predicting on test images"""
+# Testing model performance on custom data (image 1)
+im1 = Image.open(sample +"image_pl.webp")  # Load the first custom test image
+plt.imshow(im1)  # Display the image
+print("Actual Category: recycable plastic")  # Actual category for reference
+
+# Pre-processing the image
+im1 = im1.convert('RGB')  # Convert the image to RGB format
+im1 = im1.resize(IMAGE_DIMS)  # Resize image to match input dimensions of the model
+im1 = np.expand_dims(im1, axis=0)  # Add an extra dimension to make it a batch of size 1
+im1 = np.asarray(im1)  # Convert image to a numpy array for model input
+
+# Predicting using the trained model
+pred1_r = rfinal_model.predict([im1])[0]  # Predict the class of the image
+pred1_r = np.argmax(pred1_r)  # Get the class with the highest predicted probability
+print("Predicted Category:", target_names[pred1_r])  # Display the predicted class
+
+# Testing model performance on custom data (image 2)
+im2 = Image.open(sample + 'th.jpg')  # Load the second custom test image
+plt.imshow(im2)  # Display the image
+print("Actual Category: non recycable plastic")  # Actual category for reference
+
+# Pre-processing the image
+im2 = im2.convert('RGB')  # Convert the image to RGB format
+im2 = im2.resize(IMAGE_DIMS)  # Resize image to match input dimensions of the model
+im2 = np.expand_dims(im2, axis=0)  # Add batch dimension for prediction
+im2 = np.asarray(im2)  # Convert image to numpy array
+
+# Predicting using the trained model
+pred2_r = rfinal_model.predict([im2])  # Predict the class of the image
+pred2_r = np.argmax(pred2_r)  # Get the class with the highest predicted probability
+print("Predicted Category:", target_names[pred2_r])  # Display the predicted class
